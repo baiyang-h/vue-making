@@ -1,0 +1,29 @@
+{
+  "name": "vue-making",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "dev": "rollup -c --watch"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/touH/vue-making.git"
+  },
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/touH/vue-making/issues"
+  },
+  "homepage": "https://github.com/touH/vue-making#readme",
+  "dependencies": {
+    "@babel/core": "^7.11.1",
+    "@babel/preset-env": "^7.11.0",
+    "rollup": "^2.26.2",
+    "rollup-plugin-babel": "^4.4.0"
+  },
+  "devDependencies": {
+    "rollup-plugin-serve": "^1.0.3"
+  }
+}
