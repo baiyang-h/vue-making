@@ -4,6 +4,7 @@
 
 import { initState } from "./state";
 import { compileToFunctions } from "./compiler/index";
+import { mountComponent } from "./lifecycle";
 
 // 扩展状态这里 扩展
 export function initMixin(Vue) {
@@ -29,6 +30,8 @@ export function initMixin(Vue) {
     const vm = this;
     const options = vm.$options
     el = document.querySelector(el)
+    vm.$el = el
+    
     if(!options.render) {
       // 没render 将 template 转化为 render 方法
       let template = options.template;
@@ -39,7 +42,12 @@ export function initMixin(Vue) {
       // 编译原理 将模板编译成 render 函数
       // 将 template 转为 render 函数
       const render = compileToFunctions(template)
-      options.render = render;   // 渲染时用的都是这个render方法
+      // 渲染时用的都是这个render方法
+      options.render = render;   
     }
+
+    // 需要挂载这个组件
+    mountComponent(vm, el)
+
   }
 }
