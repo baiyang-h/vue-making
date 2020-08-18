@@ -4,21 +4,26 @@
 
 import { initState } from "./state";
 import { compileToFunctions } from "./compiler/index";
-import { mountComponent } from "./lifecycle";
+import { mountComponent, callHook } from "./lifecycle";
+import { mergeOptions } from "./util";
 
 // 扩展状态这里 扩展
 export function initMixin(Vue) {
   // 初始化方法
   Vue.prototype._init = function (options) {
     const vm = this;
-    vm.$options = options
+     // 需要将用户自定义的 options 和全局的 options 做合并  , 即 将 构造函数.options 属性和 实例传入的options 做合并
+    //  比如 Vue.options 和 vm实例 上 传入的 参数
+    vm.$options = mergeOptions(vm.constructor.options, options)
+    // console.log(vm.$options)   // [{created: Array(2)}]
 
     // 初始化状态（将数据做一个初始化的劫持 当我改变数据时应该更新视图）
     // vue组件中有很多状态 data props watch computed
 
+    callHook(vm, 'beforeCreate')
     initState(vm)
+    callHook(vm, 'created')
 
-    
     // 如果当前有 el 属性说明要渲染模板
     if(vm.$options.el) {
       vm.$mount(vm.$options.el)
@@ -50,7 +55,6 @@ export function initMixin(Vue) {
     mountComponent(vm, el)
 
     
-
 
   }
 }

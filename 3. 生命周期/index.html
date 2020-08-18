@@ -15,8 +15,15 @@
   </div>
   <script src="dist/umd/vue.js"></script>
   <script>
+    // 混合、混入
+    Vue.mixin({   // 全局直接定义会污染全局对象， 使用混入的方式来扩展对象
+      created() {
+        console.log('mixin created11111')
+      },
+    })
     const vm = new Vue({
       el: '#app',
+      // mixins: [],
       data() {
         return {
           school: {
@@ -24,12 +31,12 @@
             age: 100
           }
         }
-      }
+      },
+      created() {  // 生命周期 就是回调函数， 先订阅好，后续会触发
+        console.log('my created')
+      },
     })
-    // 默认弄个数据会递归去用 defineProperty 进行拦截，性能差 -》 proxy
-    // 我们开发功能时很少对数组索引进行操作，为了性能考虑不对数组进行拦截
-    // 拦截可以改变数组的方法进行操作
-
+    // [created1, created2]
     console.log(vm)
   </script>
 </body>
