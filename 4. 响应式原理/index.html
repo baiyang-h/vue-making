@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Document</title>
+</head>
+<body>
+  <div id="app" style="color: red;">
+    <p>hello world</p>
+    <ul>
+      <li>{{ school.name }}</li>
+      <li>{{ school.age }}</li>
+      <li>{{ a }}</li>
+      <li>{{ arr }}</li>
+    </ul>
+  </div>
+  <script src="dist/umd/vue.js"></script>
+  <script>
+    const vm = new Vue({
+      el: '#app',
+      data() {
+        return {
+          school: {
+            name: 'zhangsan',
+            age: 100
+          },
+          // 直接在页面中 {{a}} 会不会对 内部的 a.a 也能做到观测和劫持呢？答案是可以的，因为页面中的 {{a}} 会在模板编译时 使用 JSON.stringfy 方法，该方法会获取内部的属性，既然有获取就会触发get操作进行观测和劫持
+          a: {a: 1},
+          // 通过数组更新索引和长度更新是无效的
+          arr: [{a: 1}, 3]
+        }
+      },
+    })
+    setTimeout(() => {
+      vm.school.name = 'zs'   // 重新调用 _render 在调用 _update
+      vm.a.a = 2
+      vm.arr.push(222)
+      // vm._update(vm._render())
+
+      // 数据变化 自动调用 vm._update(vm._render()) 就可以了
+      // vue 更新策略是以组件为单位的， 给每个组件都增加了一个 watcher，属性变化后悔重新调用这个 watcher(渲染watcher)
+
+      // 1. 我取arr的值 会调用get方法 我希望让当前数组记住这个渲染watcher
+      // 2. 我给所有的对象类型都增加一个dep属性
+      // 3. 当页面对arr取值时 我就让数组对的dep记住这个watcher
+      // 等会我更新数组时， push shift 方法时 找到数组对应的watcher来更新
+    }, 1000)
+    console.log(vm)
+  </script>
+</body>
+</html>
