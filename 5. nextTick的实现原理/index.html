@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Document</title>
+</head>
+<body>
+  <div id="app" style="color: red;">
+   {{arr}}
+  </div>
+  <script src="dist/umd/vue.js"></script>
+  <script>
+    const vm = new Vue({
+      el: '#app',
+      data() {
+        return {
+          arr: [{a: 1}, 3]
+        }
+      },
+    })
+    // 异步更新，  更新数据后。不能立即拿到最新节点
+    // nextTick 等待页面更新好后再获取最终dom
+    setTimeout(() => {
+      //  批处理， 渲染应该不需要 执行 5 次， 只需执行一次就行
+      vm.arr.push(3)
+      vm.arr.push(3)
+      vm.arr.push(3)
+      vm.arr.push(3)
+      //  如果更新数据了  watcher.update() 方法
+    }, 1000)
+    console.log(vm)
+  </script>
+</body>
+</html>
