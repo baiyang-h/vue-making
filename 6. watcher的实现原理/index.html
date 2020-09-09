@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Document</title>
+</head>
+<body>
+  <div id="app" style="color: red;">
+   {{a.a.a}}
+  </div>
+  <script src="dist/umd/vue.js"></script>
+  <script>
+    const vm = new Vue({
+      el: '#app',
+      data() {
+        return {
+          b: 1,
+          a: {a: {a: 1}}
+        }
+      },
+      watch: {
+        // a(val, oldValue) {   // 对象没有老值 都是新的， 只有 普通类型才区分新值老值
+        //   console.log(val)
+        // }
+        // 可能会有 a.a.a 的写法
+        'a.a.a': {
+          handler(val, oldValue) {
+            console.log('watch', val, oldValue)
+          },
+          // immediate: true
+        }
+      },
+    })
+
+    setTimeout(() => {
+      vm.a.a.a = 2000     // 会触发 set 方法   =》 set 方法会触发watcher的run
+    }, 2000)
+
+    /*
+    1. 直接key value
+    2. 写成key 和 数组的方式
+    3. 监控当前实例上的方法
+    4. 对象 handler 的写法
+
+      1. 函数写法
+      a(val, oldValue) {
+        console.log(val)
+      }
+
+      2. 数组写法
+      a: [
+        (val, oldValue) => {},
+        (val, oldValue) => {},
+      ]
+      
+      3. 方法写法， methods: {aa(){}}
+      watch: {
+        a: 'aa'
+      }
+
+      4. 对象形式
+      a : {
+        handler() {
+          console.log(xxx)
+        },
+        deep: true
+      }
+
+      ..... 还有种可能 就是 使用 $watch
+
+      vm.$watch(() => {
+        return 'a'
+      })
+
+    */ 
+  </script>
+</body>
+</html>

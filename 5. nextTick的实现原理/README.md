@@ -1,293 +1,280 @@
-## 响应式原理（渲染Watcher）
+# nextTick的实现原理
 
-### Watcher
+## queueWatcher 队列
 
 
-
-当每次页面中data、props等变化时，视图就会更新。比如 `vm.a = 1` 改变时，页面会重新渲染，进行更新。
-
-渲染 Watcher，整个过程只会执行一次，只在页面初始化加载渲染时，执行一次，通过初始化加载，对模板中的相关属性进行了依赖收集。
-
-Vue中主要存在三大Watcher
-
-1. 渲染 Watcher
-2. 监听 Watcher
-3. 计算属性 Watcher
 
 ```js
-// 加载渲染页面的函数
-export function mountComponent() {
-  
-  ......
-  
-  callHook(vm, 'beforeMount')
-  
-  let updateComponent = () => {
-    vm._update(vm._render());
-  }
-  //这个 watcher是用于渲染的，只在页面初始渲染的时候执行一次
-  new Watcher(vm, updateComponent, () => {
-    callHook(vm, 'beforeUpdate')
-  }, true)    // 渲染watcher 只是个名字
-
-  callHook(vm, 'mounted')
-
-  ......
-}
-```
-
-那么我们来写这个重要的渲染 Watcher
-
-```js
-import { pushTarget, popTarget } from "./dep";
-
-let id = 0;
-class Watcher {
-  // 初始化渲染Watcher的 exprOrFn 是上面用于渲染页面的方法，即核心内容是 vm._update(vm._render())
-  constructor(vm, exprOrFn, cb, options) {
-    this.vm = vm       
-    this.exprOrFn = exprOrFn      // 渲染Watcher是函数， 监听Watcher是属性名
-    this.cb = cb									// 回调，
-    this.options = options 				//相关设置
-    this.id = id++      					// watcher 的唯一标识， 如渲染Watcher、监听Watcher、计算属性Watcher
-
-    if(typeof exprOrFn === 'function') {
-      this.getter = exprOrFn
-    }
-
-    this.get()     // 默认初始化会调用 get 方法
-  }
-
-  get() {
-    //ep.target = watcher
-    pushTarget(this)    // 当前watcher实例
-    this.getter()    // 调用 exprOrFn   渲染页面时会去取值，只要取值就会执行相关属性的get方法 ，在get方法里面进行依赖收集
-    popTarget()       // 渲染完就将watcher删除了
-  }
-
-  update() {
-    this.get()
-  }
-}
-
-export default Watcher
-
-/*
-在数据劫持的时候 定义defineProperty的时候 已经给每个属性都增加了一个dep
-
-1. 是想把这个渲染watcher 放到了 Dep.target 属性上
-2. 开始渲染 取值会调用get方法，需要让这个属性的dep 存储当前的wathcer
-3. 页面上所需要的属性都会将这个watcher存在自己的dep中
-4. 等会属性更新了 就重新调用渲染逻辑 通知自己存储的watcher来更新   watcher.update()
-*/
-```
-
-初始化的的时候，默认会执行`this.get()` 方法，而该方法会进行数据的依赖收集和视图渲染，其中 `this.getter()` 的核心就是执行 `render`方法，得到虚拟DOM，最后在通过`vm._update`方法渲染成真实DOM。在这个过程中会对数据进行取值，而因为取值的原因，所以会触发 `Object.defineProperty`的属性中的 `get` 取值，我们在 `get` 方法里进行依赖收集。如下
-
-```js
-// 观测 劫持
-function defineReactive(data, key, value) {
-  
-	......
-  
-  let dep = new Dep()   // 每个属性都有一个 dep， 并且有且自由一个属于自己的 dep 实例
-
-  // 当页面取值时 说明这个值用来渲染了，将这个watcher和这个属性对应起来
-  Object.defineProperty(data, key, {
-    get() {
-      if(Dep.target) {  // 让这个属性记住这个watcher
-        dep.depend()
-      }
-      return value
-    },
-    set(newVlaue) {
-      
-      ......
-      
-      dep.notify()   // 异步更新
-
-    }
-  })
-}
-```
-
-
-
-
-
-### Dep
-
-
-
-注意每个属性对应一个dep，dep中可以进行依赖收集，数组更新，Dep和Watcher双向记忆的功能。
-
-首先我们要注意上面 `pushTarget(this)` 和 `popTarget()` 这两个方法
-
-- `pushTarget(this)` ：是将当前的渲染 Wathcer 的实例 暂时先绑定到 `Dep.target` 上，
-- `popTarget()` ：等到执行好 `this.getter()`方法后，再在 `Dep.target` 进行解绑。
-
-使用以上方法时为了在进行依赖收集的时候，确保 `Dep.target` 上存在 Wathcer 实例，并将该实例存放到当前属性的 `dep` 实例中。
-
-注意：每个属性都有一个 dep 实例，并且有且只有一个属于他的 dep 实例。
-
-在 get 方法中，我们通过 `dep.depend`方法，将当前渲染Watcher实例保存到各自属性的dep实例中的subs中，当我们修改数据时，会触发`Object.defineProperty` 的 `set` 方法，然后触发 `dep.notify()` 来进行对该数据收集到的watcher进行触发。
-
-在 `depend` 方法中，会依次触达 相关 `watcher` 的 `update()` 方法，这就触发了更新。
-
-```js
-// 多对多的关系  一个属性有一个dep是用来收集watcher的
-// dep 可以存多个 watcher ， 如vm.$watcher，渲染watcher，计算属性watcher等
-// 一个wathcer 可以对应多个 dep
-class Dep {
-
-  constructor() {
-    this.subs = []    // 存放watcher
-  }
-
-  // 将当前收集到的watcher存储起来， 到subs中
-  depend() {
-    this.subs.push(Dep.target)
-  }
-
-  notify() {
-    this.subs.forEach(watcher => watcher.update())
-  }
-}
-
-Dep.target = null;    // 静态属性就一份
-export function pushTarget(watcher) {
-  Dep.target = watcher     // 保留watcher
-}
-
-export function popTarget() {
-  Dep.target = null       // 将变量删除掉
-}
-
-export default Dep
-```
-
-但是为了考虑到之后还有计算属性的Watcher，所以我们这里要将Dep和Watcher做成一个双向记忆的功能，让 watcher 记住 dep 的同时，让 dep 也记住 watcher。代码改为如下：
-
-```js
-// Dep
-
-let id = 0
-class Dep {
-  constructor() {
-    this.subs = []    
-    this.id = id++   // 每个属性都有属于他自己的dep，id就是编号
-  }
-  
-  depend() {
-    Dep.target.addDep(this)    // 实现双向记忆的，让 watcher 记住 dep 的同时，让 dep 也记住watcher
-  }
-  ......
-}
-```
-
-在Wathcer实例的方法中，当触发 `addDep(dep)` 时，我们会做两件事：
-
-1. 对dep进行去重，保证该 Wathcer 存储的dep不会重复。即当页面上有 3个 `{{name}}`时，此时name属性都一样，但是出现了3次，因为是同一个属性，同一个dep，所以我们要保证在Watcher存储时的唯一性，不会重复存储
-2. `dep.depend()` 会间接触发 `wathcer.addDep(dep)`来实现Dep和Watcher的双向记忆，即dep保存wathcer，wathcer也反过来保存dep。这是一个多对多的关系。
-
-```js
-// Watcher
-
-class Watcher {
-  constructor(vm, exprOrFn, cb, options) {
-    ......
-    this.deps = []      				// watcher 记录有多少dep依赖
-    this.depsId = new Set()    // 主要用于去重，保证存储的 dep 不会重复
-		......
-  }
-  // 使用Set来保证 该Wathcer保存的dep不会重复
-  addDep(dep) {
-    let id = dep.id;
-    if(!this.depsId.has(id)) {
-      this.deps.push(dep)
-      this.depsId.add(id)
-      dep.addSub(this)    // dep 也反过来收集 watcher
-    }
-  }
-
-}
-```
-
-
-
-### 数组的更新
-
-
-
-此时对于一般改变属性的键来触发更新，我们已经做到了，但是对于如以下的改变数据，并不会触发更新，如：
-
-- 改变数组 `arr.push、arr.pop`等，变异方法
-- `Vue.set(obj, key, value)` 改变对象
-
-因此对于对象或数组本身，我们也要做依赖收集，这样当改变对象或数组本身时也会触发依赖更新。具体方法时在对象和数组本身身上我们也给他们有一个 dep 实例。
-
-```js
-class Observer {
-  constructor(value) {
-    ......
-    this.dep = new Dep()
-    ......
-  }
-}
-```
-
-在`Object.defineProperty`上也做修改，首先获取到对象本身的 observer 实例对象，`let childDep = observer(value)`，在这个实例上我们给对象本身也创建了一个dep实例，然后执行`childDep.dep.depend()`用于搜集依赖。
-
-```js
-function defineReactive(data, key, value) {
-  // 获取data[key]， 即 value 值的 observer 实例， 如 data = {a: {}, b: []}， 得到 data.a 这个对象和data.b这个数组 的 observer 实例， 在他们身上也有一个dep
-  let childDep = observer(value)   // 如果值是对象类型在进行观测
-
-	......
-
-  Object.defineProperty(data, key, {
-    get() {
-      if(Dep.target) {  
-        dep.depend()
-        if(childDep) {   // 可能是数组，可能是对象 的 observer 实例
-          // 默认给对象或数组增加了一个 dep， 当对数组或对象取值的时候， 比如 当 数组调用 push 等时，可以在那调用 ob.dep.notify() 触发更新
-          childDep.dep.depend()   // 当前这个对象和数组 存起来了这个渲染 Watcher
+const vm = new Vue({
+    el: '#app',
+    data() {
+        return {
+            arr: [{a: 1}, 3]
         }
-      }
-      return value
     },
-    set(newVlaue) {
-      ......
-      dep.notify()   // 异步更新
+})
+// 异步更新，  更新数据后。不能立即拿到最新节点
+// nextTick 等待页面更新好后再获取最终dom
+setTimeout(() => {
+    //  批处理， 渲染应该不需要 执行 5 次， 只需执行一次就行
+    vm.arr.push(3)
+    vm.arr.push(3)
+    vm.arr.push(3)
+    vm.arr.push(3)
+    //  如果更新数据了  watcher.update() 方法
+}, 1000)
+```
 
-    }
-  })
+首先我现在同时改变一个 data 中的数据，同时改变多次，如果不做处理的话，就会同时出发属性的 set 多次，这样也表示这会执行多次 `dep.notify()` ，而每次执行该方法，都会循环调用每个 watcher（包括渲染watcher、观察watcher、计算属性watcher） 实例的 `update`方法，导致重复渲染
+
+
+
+那么我们现在要做的就是避免重复渲染，即等到这次执行栈中的所有数据都修改好后，然后只执行一次 update 更新操作。这里我们就需要用到 微任务或者宏任务了，将执行顺序推迟到执行栈执行结束。
+
+```js
+class Watcher {
+    ...
+    
+    update() {
+
+    // 这里不要每次都调用 get 方法， get 方法会重新渲染页面
+    // 方法是先将 get 方法缓存起来，等数据都改好之后再执行
+
+    queueWatcher(this)      // 暂存的概念，  先存在，要使用时再用
+
+    // this.get()
+  }
 }
 ```
 
-在数组中，当触发编译方法的时候，进行依赖更新
+```js
+let queue = []    //将需要批量更新的 watcher 存到一个队列中，稍后让 watcher 执行、
+let has = {}    // 源码通过对象来去重
+let pending = false
+function queueWatcher(watcher){   
+  //  这里我们做去重操作，对于相同的watcher只执行一次
+  
+  let id = watcher.id
+  if(has[id] == null) {   // 如果没有的话 就存入这个watcher和 has 这个id 有则是true
+    queue.push(watcher)   
+    has[id] = true
+
+    if(!pending) {    // 防抖
+      // 等待所有同步代码执行完毕后
+      setTimeout(() => {   // 如果还没清空队列，就不要在开定时器了
+        queue.forEach(watcher => watcher.run())
+        // watcher 都执行完了， 将队列清空
+        queue = []
+        has = {}
+        pending = false
+      }, 0)
+      pending = true
+    }
+   
+  }
+}
+```
+
+我们定义一个 queue 队列，将每次要更新时的 watcher 存入到这个队列中，等到所有同步操作都结束后，触发更新。其中，我们确保每次存入到队列中的 watcher 都是唯一的（即、独一的渲染watcher、监听watcher、计算属性watcher），那怎么来进行确保呢？此时就要用到我们一开始定义的 `watcher.id`这个唯一编号了，通过 has 这个对象来实现每次存入的唯一性。
+
+注意这里还用到了一个批处理，即一开始我们通过一个开关 pending 来挂起一个异步操作，这个异步操作会在所有的同步操作结束之后执行，然后关闭开关。之后每次执行 `queueWatcher` 这个方法因为开关已经关闭的原因，所以不会再执行，知道同步任务结束后，异步任务执行。 执行完之后我们在将这个开关打开。
+
+
+
+## nextTick
+
+现在我们来了解一下 `nextTick` 的底层，首先先来使用一下 vue 中 nextTick 的使用：
 
 ```js
-methods.forEach(method => {
-  arrayMethods[method] = function(...args) {   // this 就是observe里的value
-    ......
-    ob.dep.notify()   // 通知数组更新
-    ......
+// Vue.nextTick( [callback, context] )
+
+// 在下次 DOM 更新循环结束之后执行延迟回调。在修改数据之后立即使用这个方法，获取更新后的 DOM。
+
+// 修改数据
+vm.msg = 'Hello'
+// DOM 还没有更新
+Vue.nextTick(function () {
+  // DOM 更新了
+})
+
+// 作为一个 Promise 使用 (2.1.0 起新增，详见接下来的提示)
+Vue.nextTick()
+  .then(function () {
+    // DOM 更新了
+  })
+```
+
+```js
+Vue.component('example', {
+  template: '<span>{{ message }}</span>',
+  data: function () {
+    return {
+      message: '未更新'
+    }
+  },
+  methods: {
+    updateMessage: function () {
+      this.message = '已更新'
+      console.log(this.$el.textContent) // => '未更新'
+      this.$nextTick(function () {
+        console.log(this.$el.textContent) // => '已更新'
+      })
+    }
   }
 })
 ```
 
+首先 `$nextTick` 内部其实执行的是一个叫做 `nextTick` 的函数，该函数内部执行的是一个异步过程。并且在每次进行 `updtae` 触发进行更新时，内部会先调用这个 `nextTick` 方法，此时如果用户也 定义了 `$nextTick` 方法的话，那么他们都会被推入到一个 `callbacks` 队列中，但是可以明确的是，内部的 nextTick 执行，要比 用户定义的 nextTick 优先，然后循环执行这个`callbacks` 队列中的nextTicks，因为先执行内部的 nextTick 的原因，等第一个执行好之后，其实dom已经更新了，所以我们在用户定义的 nextTick 内部已经可以访问 更新后的 dom了。具体代码如下：
+
+```js
+setTimeout(() => {
+    //  批处理， 渲染应该不需要 执行 5 次， 只需执行一次就行
+    vm.arr.push(3)
+    vm.arr.push(3)
+    vm.arr.push(3)
+    vm.arr.push(3)
+    //  如果更新数据了  watcher.update() 方法
+
+    vm.$nextTick(() => {   // 很明显这个方法， 绝对会在  nextTick(flushSchedulerQueue) 的 flushSchedulerQueue 这个回调函数后面执行
+        console.log(vm.$el)
+    })
+}, 1000)
+```
+
+```js
+class Watcher {
+    ......
+    update() {
+    	queueWatcher(this)    
+    }
+}
+```
+
+```js
+// 刷星当前调度的队列,,  这个就是要刷新的那个函数
+function flushSchedulerQueue() {
+  queue.forEach(watcher => {
+    watcher.run()
+    watcher.cb()
+  })
+  queue = []
+  has = {}
+  pending = false
+}
+
+function queueWatcher(watcher){   
+  let id = watcher.id
+  if(has[id] == null) {   
+    queue.push(watcher)   
+    has[id] = true
+    if(!pending) {    
+      nextTick(flushSchedulerQueue)   // flushSchedulerQueue 函数就是那个要刷新的函数
+      pending = true
+    }
+  }
+}
+```
+
+其中这里代码和上面的都一样。我们将 上面的定时器执行换成 nextTick 方法来执行
+
+```js
+export function nextTick(cb) {   // 因为内部会调用 nextTick 用户也会调用，但是异步只需要一次
+  callbacks.push(cb)
+  if(!pending) {
+    // vue3 里 nextTick 原理就是 promise.then 没有做兼容性处理了
+    timerFunc()   // 这个方法是异步方法， 做了兼容处理
+    pending = true
+  }
+}
+```
+
+每次有调用nextTick 的时候就存入到一个队列中，并且这里也做了一个批处理，即增加了一个开关，等到所有的执行栈执行完后在异步调用callbacks 这个队列中的所有 nextTick 方法，而这个异步函数 timeFunc 如下：
+
+```js
+// 可以得到 渲染更新的时候，先是内部调用了一次 next， 之后如果页面上也使用 vm.$nextTick 的话，也会进行一次调用，不过用户的调用会在内部调用之后
+// 所以在渲染的时候，应该先去渲染完页面，然后再调用 用户的 nextTick，  即先处理第一个，再处理第二个
+const callbacks = []
+let pending = false
+function flushCallbacks() {
+  while(callbacks.length) {    // 执行完要清空 callbacks 队列
+    callbacks.forEach(cb => cb())    // 让 nextTick 中传入的方法依次执行
+    let cb = callbacks.pop()
+    cb()
+  }
+  pending = false       // 标识已经执行完毕
+
+}
+let timerFunc;
+if(Promise) {
+  timerFunc = () => {
+    Promise.resolve().then(flushCallbacks)        // 异步处理更新
+  }
+} else if(MutationObserver) {   // 可以监控 dom 的变化，监控完毕后是异步更新
+  let observe = new MutationObserver(flushCallbacks)
+  let textNode = document.createTextNode(1)     // 先创建一个文本节点
+  observe.observe(textNode, {characterData: true})    // 观测文本节点中的内容
+  timerFunc = () => {
+    textNode.textContent = 2          // 改变文本中的内容， 会更新视图， 会调用 上面绑定的方法
+  }
+} else if(setImmediate) {
+  timerFunc = () => {
+    setImmediate(flushCallbacks)
+  }
+} else {
+  timerFunc = () => {
+    setTimeout(flushCallbacks)
+  }
+}
+
+
+export function nextTick(cb) {   // 因为内部会调用 nextTick 用户也会调用，但是异步只需要一次
+  callbacks.push(cb)
+  if(!pending) {
+    // vue3 里 nextTick 原理就是 promise.then 没有做兼容性处理了
+    timerFunc()   // 这个方法是异步方法， 做了兼容处理
+    pending = true
+  }
+}
+```
+
+vue3.0中 nextTick 内部的原理已经改为只有 Promise，已经不考虑别的兼容性了，而2版本做了一些兼容处理，他的兼容处理的顺序如下：
+
+1. `Promise`
+2. `MutationObserver`
+3. `setImmediate`
+4. `setTimeout`
+
+反正都是一些宏微任务，都要等到执行栈全部执行完，才会执行这些任务。即执行 callbacks 队列中 存入的 nextTick 的回调函数。
+
+而又因为，每次数据更新触发视图更新调用 `update` 的方法时，会首先执行内部的 `nextTick(flushSchedulerQueue)`方法
+
+```js
+// 刷星当前调度的队列,,  这个就是要刷新的那个函数
+function flushSchedulerQueue() {
+  queue.forEach(watcher => {
+    watcher.run()
+    watcher.cb()
+  })
+  queue = []
+  has = {}
+  pending = false
+}
+```
+
+即会先触发更新操作，然后才会触发 用户定义的 nextTick 方法，所以我们在调用用户定义的nextTick时，可以在内部得到更新好后的dom了。
 
 
 
+## 总结
 
-### 总结
+```js
+内部的nextTick执行的回调  flushSchedulerQueue
+
+用户定义的vm.$nextTick 中的回调   () => {console.log(xxx)}
 
 
+nextTicks      [flushSchedulerQueue, () => {console.log(xxx)}]
 
-1. 初始化渲染的时候，创建一个渲染 Watcher 的实例对象，当创建好该实例对象时，默认触发它的 `get()` 方法
-2. 在初始化渲染时，`get` 方法中的核心就是 `vm._update(vm._render())` 会触发数据的 `Object.defineProperty`的 `get `方法，进行依赖收集。
-3. 并且同时把这个渲染watcher 放到了 `Dep.target` 属性上
-4. 每个属性有独属于他的一个dep实例，该实例收集了相关watcher的依赖，这个属性的dep 存储当前的wathcer。当触发`dep.depend()`时会实现 Dep 和 Watcher 的双向记忆，让 watcher 记住 dep 的同时，让 dep 也记住 watcher
-5. 当属性更新时，就执行`dep.notify()` 通知自己存储的watcher来更新   `watcher.update()`
+因此在最后循环调用 nextTicks 中的方法时，是先调用第一个更新的nextTick， 已经进行了更新，这样后续的nextTick 都可以获取到更新后的dom了
+```
 

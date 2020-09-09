@@ -28,6 +28,10 @@
       vm.arr.push(3)
       vm.arr.push(3)
       //  如果更新数据了  watcher.update() 方法
+
+      vm.$nextTick(() => {   // 很明显这个方法， 绝对会在  nextTick(flushSchedulerQueue) 的 flushSchedulerQueue 这个回调函数后面执行
+        console.log(vm.$el)
+      })
     }, 1000)
     console.log(vm)
   </script>
